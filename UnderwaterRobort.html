@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Underwater Robot Controller</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Arial', sans-serif;
+            color: white;
+        }
+        
+        #container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        
+        #controls {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.5);
+            padding: 15px;
+            border-radius: 10px;
+            display: grid;
+            grid-template-areas:
+                ". up ."
+                "left down right"
+                ". . ."
+                "q updown e";
+            gap: 10px;
+            backdrop-filter: blur(5px);
+            border: 1px solid rgba(0, 200, 255, 0.3);
+        }
+        
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            background: rgba(0, 180, 219, 0.3);
+            border: 2px solid #00b4db;
+            border-radius: 10px;
+            color: white;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        
+        .control-btn:hover {
+            background: rgba(0, 180, 219, 0.5);
+        }
+        
+        .control-btn:active {
+            background: rgba(0, 180, 219, 0.8);
+            transform: scale(0.95);
+        }
+        
+        #btn-up {
+            grid-area: up;
+        }
+        
+        #btn-left {
+            grid-area: left;
+        }
+        
+        #btn-down {
+            grid-area: down;
+        }
+        
+        #btn-right {
+            grid-area: right;
+        }
+        
+        #btn-ascend {
+            grid-area: q;
+        }
+        
+        #btn-descend {
+            grid-area: e;
+        }
+        
+        #status {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            color: #00fffc;
+            text-shadow: 0 0 5px rgba(0, 255, 255, 0.7);
+        }
+        
+        #depth-meter {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 150px;
+            height: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        #depth-level {
+            height: 100%;
+            width: 50%;
+            background: linear-gradient(to right, #00b4db, #00fffc);
+            transition: width 0.3s;
+        }
+        
+        #depth-text {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            text-align: center;
+            line-height: 20px;
+            font-size: 12px;
+            color: white;
+        }
+        
+        .active {
+            background: rgba(0, 180, 219, 0.8) !important;
+            box-shadow: 0 0 15px #00b4db;
+        }
+        
+        h1 {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            margin: 0;
+            color: white;
+            text-shadow: 0 0 10px rgba(0, 200, 255, 0.7);
+        }
+    </style>
+</head>
+<body>
+    <h1>3D Underwater Robot Controller</h1>
+    
+    <div id="container"></div>
+    
+    <div id="status">System Ready</div>
+    
+    <div id="depth-meter">
+        <div id="depth-level"></div>
+        <div id="depth-text">Depth: 50m</div>
+    </div>
+    
+    <div id="controls">
+        <div class="control-btn" id="btn-up">W</div>
+        <div class="control-btn" id="btn-left">A</div>
+        <div class="control-btn" id="btn-down">S</div>
+        <div class="control-btn" id="btn-right">D</div>
+        <div class="control-btn" id="btn-ascend">Q</div>
+        <div class="control-btn" id="btn-descend">E</div>
+    </div>
+
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x001133);
+        scene.fog = new THREE.FogExp2(0x001133, 0.002);
+        
+        // Camera
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        camera.position.set(0, 5, 10);
+        camera.lookAt(0, 0, 0);
+        
+        // Renderer
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.shadowMap.enabled = true;
+        document.getElementById('container').appendChild(renderer.domElement);
+        
+        // Lights
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(1, 1, 1);
+        directionalLight.castShadow = true;
+        scene.add(directionalLight);
+        
+        const robotLight = new THREE.PointLight(0x00aaff, 1, 20);
+        robotLight.position.set(0, 1.5, 0);
+        
+        // Robot
+        const robotGroup = new THREE.Group();
+        scene.add(robotGroup);
+        
+        // Robot body
+        const bodyGeometry = new THREE.CylinderGeometry(1, 1, 2, 8);
+        const bodyMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x0066cc,
+            emissive: 0x003366,
+            specular: 0x00aaff,
+            shininess: 30
+        });
+        const body = new THREE.Mesh(bodyGeometry, bodyMaterial);
+        body.rotation.x = Math.PI / 2;
+        robotGroup.add(body);
+        
+        // Robot dome
+        const domeGeometry = new THREE.SphereGeometry(0.8, 16, 8, 0, Math.PI * 2, 0, Math.PI / 2);
+        const domeMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x00aaff,
+            transparent: true,
+            opacity: 0.7,
+            emissive: 0x003366,
+            specular: 0xffffff,
+            shininess: 100
+        });
+        const dome = new THREE.Mesh(domeGeometry, domeMaterial);
+        dome.position.y = 0.2;
+        robotGroup.add(dome);
+        
+        // Robot eyes
+        const eyeGeometry = new THREE.SphereGeometry(0.15, 16, 16);
+        const eyeMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x00ffff,
+            emissive: 0x00aaff,
+            emissiveIntensity: 0.5
+        });
+        
+        const leftEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+        leftEye.position.set(-0.3, 0.3, 0.7);
+        robotGroup.add(leftEye);
+        
+        const rightEye = new THREE.Mesh(eyeGeometry, eyeMaterial);
+        rightEye.position.set(0.3, 0.3, 0.7);
+        robotGroup.add(rightEye);
+        
+        // Robot thrusters
+        const thrusterGeometry = new THREE.CylinderGeometry(0.2, 0.3, 0.5, 8);
+        const thrusterMaterial = new THREE.MeshPhongMaterial({ 
+            color: 0x333333,
+            emissive: 0x222222
+        });
+        
+        // Front thrusters
+        const frontLeftThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        frontLeftThruster.position.set(-0.8, 0, 0.8);
+        frontLeftThruster.rotation.x = Math.PI / 2;
+        robotGroup.add(frontLeftThruster);
+        
+        const frontRightThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        frontRightThruster.position.set(0.8, 0, 0.8);
+        frontRightThruster.rotation.x = Math.PI / 2;
+        robotGroup.add(frontRightThruster);
+        
+        // Back thrusters
+        const backLeftThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        backLeftThruster.position.set(-0.8, 0, -0.8);
+        backLeftThruster.rotation.x = Math.PI / 2;
+        robotGroup.add(backLeftThruster);
+        
+        const backRightThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        backRightThruster.position.set(0.8, 0, -0.8);
+        backRightThruster.rotation.x = Math.PI / 2;
+        robotGroup.add(backRightThruster);
+        
+        // Vertical thrusters
+        const topThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        topThruster.position.set(0, 1, 0);
+        robotGroup.add(topThruster);
+        
+        const bottomThruster = new THREE.Mesh(thrusterGeometry, thrusterMaterial);
+        bottomThruster.position.set(0, -1, 0);
+        robotGroup.add(bottomThruster);
+        
+        // Thruster flames
+        const flameGeometry = new THREE.ConeGeometry(0.3, 1, 8);
+        const flameMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0xff6600,
+            transparent: true,
+            opacity: 0.8
+        });
+        
+        const frontLeftFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        frontLeftFlame.position.set(-0.8, 0, 1.1);
+        frontLeftFlame.rotation.x = Math.PI;
+        frontLeftFlame.visible = false;
+        robotGroup.add(frontLeftFlame);
+        
+        const frontRightFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        frontRightFlame.position.set(0.8, 0, 1.1);
+        frontRightFlame.rotation.x = Math.PI;
+        frontRightFlame.visible = false;
+        robotGroup.add(frontRightFlame);
+        
+        const backLeftFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        backLeftFlame.position.set(-0.8, 0, -1.1);
+        backLeftFlame.visible = false;
+        robotGroup.add(backLeftFlame);
+        
+        const backRightFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        backRightFlame.position.set(0.8, 0, -1.1);
+        backRightFlame.visible = false;
+        robotGroup.add(backRightFlame);
+        
+        const topFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        topFlame.position.set(0, 1.5, 0);
+        topFlame.rotation.x = Math.PI;
+        topFlame.visible = false;
+        robotGroup.add(topFlame);
+        
+        const bottomFlame = new THREE.Mesh(flameGeometry, flameMaterial);
+        bottomFlame.position.set(0, -1.5, 0);
+        bottomFlame.visible = false;
+        robotGroup.add(bottomFlame);
+        
+        // Add robot light
+        robotGroup.add(robotLight);
+        
+        // Ocean floor
+        const floorGeometry = new THREE.PlaneGeometry(200, 200);
+        const floorMaterial = new THREE.MeshStandardMaterial({ 
+            color: 0x3a2706,
+            roughness: 0.8,
+            metalness: 0.2
+        });
+        const floor = new THREE.Mesh(floorGeometry, floorMaterial);
+        floor.rotation.x = -Math.PI / 2;
+        floor.position.y = -10;
+        scene.add(floor);
+        
+        // Create underwater plants and objects
+        function createSeaweed(x, z, height) {
+            const seaweed = new THREE.Group();
+            
+            // Stem
+            const stemGeometry = new THREE.CylinderGeometry(0.05, 0.05, height, 6);
+            const stemMaterial = new THREE.MeshPhongMaterial({ color: 0x2e8b57 });
+            const stem = new THREE.Mesh(stemGeometry, stemMaterial);
+            stem.position.y = height / 2;
+            seaweed.add(stem);
+            
+            // Leaves
+            const leafGeometry = new THREE.ConeGeometry(0.2, 0.5, 4);
+            const leafMaterial = new THREE.MeshPhongMaterial({ color: 0x3cb371, side: THREE.DoubleSide });
+            
+            for (let i = 0; i < 5; i++) {
+                const leafHeight = (i / 5) * height;
+                const leaf = new THREE.Mesh(leafGeometry, leafMaterial);
+                leaf.position.y = leafHeight;
+                leaf.rotation.x = Math.PI / 2;
+                leaf.rotation.z = Math.PI * 2 * (i / 5);
+                seaweed.add(leaf);
+            }
+            
+            seaweed.position.set(x, -10, z);
+            seaweed.rotation.y = Math.random() * Math.PI * 2;
+            
+            return seaweed;
+        }
+        
+        function createCoral(x, z, size) {
+            const coralGeometry = new THREE.ConeGeometry(size, size * 2, 6);
+            const coralMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0xff6b6b,
+                flatShading: true
+            });
+            const coral = new THREE.Mesh(coralGeometry, coralMaterial);
+            coral.position.set(x, -10 + (size * 1.5), z);
+            coral.rotation.x = Math.PI;
+            coral.scale.y = 0.5 + Math.random() * 0.5;
+            return coral;
+        }
+        
+        function createRock(x, z, size) {
+            const rockGeometry = new THREE.DodecahedronGeometry(size, 1);
+            const rockMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x777777,
+                flatShading: true
+            });
+            const rock = new THREE.Mesh(rockGeometry, rockMaterial);
+            rock.position.set(x, -10 + size, z);
+            return rock;
+        }
+        
+        // Populate ocean floor
+        const oceanObjects = [];
+        
+        for (let i = 0; i < 50; i++) {
+            const x = Math.random() * 180 - 90;
+            const z = Math.random() * 180 - 90;
+            
+            if (Math.random() > 0.7) {
+                const seaweed = createSeaweed(x, z, 1 + Math.random() * 3);
+                scene.add(seaweed);
+                oceanObjects.push(seaweed);
+            } else if (Math.random() > 0.5) {
+                const coral = createCoral(x, z, 0.5 + Math.random());
+                scene.add(coral);
+                oceanObjects.push(coral);
+            } else {
+                const rock = createRock(x, z, 0.3 + Math.random() * 0.7);
+                scene.add(rock);
+                oceanObjects.push(rock);
+            }
+        }
+        
+        // Water particles (bubbles)
+        const bubbleGeometry = new THREE.SphereGeometry(0.1, 8, 8);
+        const bubbleMaterial = new THREE.MeshPhongMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.5
+        });
+        
+        const bubbles = [];
+        for (let i = 0; i < 100; i++) {
+            const bubble = new THREE.Mesh(bubbleGeometry, bubbleMaterial);
+            bubble.position.set(
+                Math.random() * 40 - 20,
+                Math.random() * 20 - 10,
+                Math.random() * 40 - 20
+            );
+            bubble.userData.speed = Math.random() * 0.05 + 0.02;
+            scene.add(bubble);
+            bubbles.push(bubble);
+        }
+        
+        // Robot state
+        const robotState = {
+            position: new THREE.Vector3(0, 0, 0),
+            rotation: 0,
+            velocity: new THREE.Vector3(0, 0, 0),
+            depth: 50,
+            moving: false,
+            thrusterState: {
+                frontLeft: false,
+                frontRight: false,
+                backLeft: false,
+                backRight: false,
+                top: false,
+                bottom: false
+            }
+        };
+        
+        // Key states
+        const keys = {
+            w: false,
+            a: false,
+            s: false,
+            d: false,
+            q: false,
+            e: false
+        };
+        
+        // Control buttons
+        const btnUp = document.getElementById('btn-up');
+        const btnLeft = document.getElementById('btn-left');
+        const btnDown = document.getElementById('btn-down');
+        const btnRight = document.getElementById('btn-right');
+        const btnAscend = document.getElementById('btn-ascend');
+        const btnDescend = document.getElementById('btn-descend');
+        const status = document.getElementById('status');
+        const depthLevel = document.getElementById('depth-level');
+        const depthText = document.getElementById('depth-text');
+        
+        // Update thruster visuals
+        function updateThrusters() {
+            frontLeftFlame.visible = robotState.thrusterState.frontLeft;
+            frontRightFlame.visible = robotState.thrusterState.frontRight;
+            backLeftFlame.visible = robotState.thrusterState.backLeft;
+            backRightFlame.visible = robotState.thrusterState.backRight;
+            topFlame.visible = robotState.thrusterState.top;
+            bottomFlame.visible = robotState.thrusterState.bottom;
+        }
+        
+        // Update robot position
+        function updateRobot(delta) {
+            // Reset thruster states
+            robotState.thrusterState = {
+                frontLeft: false,
+                frontRight: false,
+                backLeft: false,
+                backRight: false,
+                top: false,
+                bottom: false
+            };
+            
+            // Calculate movement
+            const moveForward = keys.w ? 1 : 0;
+            const moveBackward = keys.s ? 1 : 0;
+            const moveLeft = keys.a ? 1 : 0;
+            const moveRight = keys.d ? 1 : 0;
+            const moveUp = keys.q ? 1 : 0;
+            const moveDown = keys.e ? 1 : 0;
+            
+            // Calculate velocity
+            const forwardVector = new THREE.Vector3(0, 0, -1).applyAxisAngle(new THREE.Vector3(0, 1, 0), robotState.rotation);
+            const rightVector = new THREE.Vector3(1, 0, 0).applyAxisAngle(new THREE.Vector3(0, 1, 0), robotState.rotation);
+            
+            robotState.velocity.set(0, 0, 0);
+            
+            // Forward/backward movement
+            if (moveForward) {
+                robotState.velocity.add(forwardVector.multiplyScalar(5 * delta));
+                robotState.thrusterState.backLeft = true;
+                robotState.thrusterState.backRight = true;
+            }
+            if (moveBackward) {
+                robotState.velocity.add(forwardVector.multiplyScalar(-5 * delta));
+                robotState.thrusterState.frontLeft = true;
+                robotState.thrusterState.frontRight = true;
+            }
+            
+            // Left/right movement
+            if (moveLeft) {
+                robotState.velocity.add(rightVector.multiplyScalar(-5 * delta));
+                robotState.thrusterState.frontRight = true;
+                robotState.thrusterState.backRight = true;
+            }
+            if (moveRight) {
+                robotState.velocity.add(rightVector.multiplyScalar(5 * delta));
+                robotState.thrusterState.frontLeft = true;
+                robotState.thrusterState.backLeft = true;
+            }
+            
+            // Up/down movement
+            if (moveUp) {
+                robotState.velocity.y = 5 * delta;
+                robotState.thrusterState.bottom = true;
+            }
+            if (moveDown) {
+                robotState.velocity.y = -5 * delta;
+                robotState.thrusterState.top = true;
+            }
+            
+            // Apply damping
+            robotState.velocity.multiplyScalar(0.9);
+            
+            // Update position
+            robotState.position.add(robotState.velocity);
+            
+            // Update depth
+            robotState.depth = 50 - (robotState.position.y * 2);
+            depthLevel.style.width = `${Math.max(0, Math.min(100, robotState.depth))}%`;
+            depthText.textContent = `Depth: ${Math.round(Math.max(0, Math.min(100, robotState.depth)))}m`;
+            
+            // Update rotation based on movement
+            if (moveLeft && !moveRight) {
+                robotState.rotation += 2 * delta;
+            }
+            if (moveRight && !moveLeft) {
+                robotState.rotation -= 2 * delta;
+            }
+            
+            // Update robot group position and rotation
+            robotGroup.position.copy(robotState.position);
+            robotGroup.rotation.y = robotState.rotation;
+            
+            // Update status
+            const moving = moveForward || moveBackward || moveLeft || moveRight || moveUp || moveDown;
+            if (moving) {
+                robotState.moving = true;
+                let statusText = '';
+                if (moveForward) statusText += 'Forward ';
+                if (moveBackward) statusText += 'Backward ';
+                if (moveLeft) statusText += 'Left ';
+                if (moveRight) statusText += 'Right ';
+                if (moveUp) statusText += 'Ascending ';
+                if (moveDown) statusText += 'Descending ';
+                status.textContent = statusText.trim();
+                status.style.color = '#00ff00';
+            } else if (robotState.moving) {
+                robotState.moving = false;
+                status.textContent = 'Hovering';
+                status.style.color = '#00fffc';
+            }
+            
+            // Update thruster visuals
+            updateThrusters();
+        }
+        
+        // Update bubbles
+        function updateBubbles() {
+            bubbles.forEach(bubble => {
+                bubble.position.y += bubble.userData.speed;
+                if (bubble.position.y > 10) {
+                    bubble.position.y = -10;
+                    bubble.position.x = Math.random() * 40 - 20;
+                    bubble.position.z = Math.random() * 40 - 20;
+                }
+            });
+        }
+        
+        // Camera follow
+        function updateCamera() {
+            const cameraOffset = new THREE.Vector3(0, 3, 8);
+            cameraOffset.applyAxisAngle(new THREE.Vector3(0, 1, 0), robotState.rotation);
+            camera.position.copy(robotState.position).add(cameraOffset);
+            camera.lookAt(robotState.position);
+        }
+        
+        // Event listeners
+        document.addEventListener('keydown', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                    keys.w = true;
+                    btnUp.classList.add('active');
+                    break;
+                case 'a':
+                    keys.a = true;
+                    btnLeft.classList.add('active');
+                    break;
+                case 's':
+                    keys.s = true;
+                    btnDown.classList.add('active');
+                    break;
+                case 'd':
+                    keys.d = true;
+                    btnRight.classList.add('active');
+                    break;
+                case 'q':
+                    keys.q = true;
+                    btnAscend.classList.add('active');
+                    break;
+                case 'e':
+                    keys.e = true;
+                    btnDescend.classList.add('active');
+                    break;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            switch(e.key.toLowerCase()) {
+                case 'w':
+                    keys.w = false;
+                    btnUp.classList.remove('active');
+                    break;
+                case 'a':
+                    keys.a = false;
+                    btnLeft.classList.remove('active');
+                    break;
+                case 's':
+                    keys.s = false;
+                    btnDown.classList.remove('active');
+                    break;
+                case 'd':
+                    keys.d = false;
+                    btnRight.classList.remove('active');
+                    break;
+                case 'q':
+                    keys.q = false;
+                    btnAscend.classList.remove('active');
+                    break;
+                case 'e':
+                    keys.e = false;
+                    btnDescend.classList.remove('active');
+                    break;
+            }
+        });
+        
+        // Button event listeners
+        btnUp.addEventListener('mousedown', () => { keys.w = true; btnUp.classList.add('active'); });
+        btnUp.addEventListener('mouseup', () => { keys.w = false; btnUp.classList.remove('active'); });
+        btnUp.addEventListener('mouseleave', () => { keys.w = false; btnUp.classList.remove('active'); });
+        
+        btnLeft.addEventListener('mousedown', () => { keys.a = true; btnLeft.classList.add('active'); });
+        btnLeft.addEventListener('mouseup', () => { keys.a = false; btnLeft.classList.remove('active'); });
+        btnLeft.addEventListener('mouseleave', () => { keys.a = false; btnLeft.classList.remove('active'); });
+        
+        btnDown.addEventListener('mousedown', () => { keys.s = true; btnDown.classList.add('active'); });
+        btnDown.addEventListener('mouseup', () => { keys.s = false; btnDown.classList.remove('active'); });
+        btnDown.addEventListener('mouseleave', () => { keys.s = false; btnDown.classList.remove('active'); });
+        
+        btnRight.addEventListener('mousedown', () => { keys.d = true; btnRight.classList.add('active'); });
+        btnRight.addEventListener('mouseup', () => { keys.d = false; btnRight.classList.remove('active'); });
+        btnRight.addEventListener('mouseleave', () => { keys.d = false; btnRight.classList.remove('active'); });
+        
+        btnAscend.addEventListener('mousedown', () => { keys.q = true; btnAscend.classList.add('active'); });
+        btnAscend.addEventListener('mouseup', () => { keys.q = false; btnAscend.classList.remove('active'); });
+        btnAscend.addEventListener('mouseleave', () => { keys.q = false; btnAscend.classList.remove('active'); });
+        
+        btnDescend.addEventListener('mousedown', () => { keys.e = true; btnDescend.classList.add('active'); });
+        btnDescend.addEventListener('mouseup', () => { keys.e = false; btnDescend.classList.remove('active'); });
+        btnDescend.addEventListener('mouseleave', () => { keys.e = false; btnDescend.classList.remove('active'); });
+        
+        // Window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+        
+        // Animation loop
+        let lastTime = 0;
+        function animate(time) {
+            const delta = Math.min(0.1, (time - lastTime) / 1000);
+            lastTime = time;
+            
+            updateRobot(delta);
+            updateBubbles();
+            updateCamera();
+            
+            renderer.render(scene, camera);
+            requestAnimationFrame(animate);
+        }
+        
+        animate(0);
+    </script>
+</body>
+</html>
