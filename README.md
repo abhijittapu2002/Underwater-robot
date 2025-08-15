@@ -1,7 +1,6 @@
 # Underwater Robot 3D Simulation
 
-![Underwater Robot Simulation](screenshot.png)
-
+[![Live Demo](https://img.shields.io/badge/Demo-Live%20Site-brightgreen)](https://underwater-robot-git-main-abhijittapu2002s-projects.vercel.app/)
 A fully interactive 3D underwater robot simulation built with Three.js that provides realistic movement and environmental effects.
 
 ##  Features
